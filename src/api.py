@@ -183,6 +183,14 @@ def approve_run(req: ApprovalRequest):
             
     raise HTTPException(status_code=400, detail="Invalid action")
 
+@app.get("/history")
+def get_history():
+    from src.database import Application, engine
+    with Session(engine) as session:
+        statement = select(Application).order_by(Application.applied_at.desc())
+        results = session.exec(statement).all()
+        return results
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
