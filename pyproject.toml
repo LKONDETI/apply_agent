@@ -1,0 +1,31 @@
+[project]
+name = "apply_agent"
+version = "0.1.0"
+description = "Autonomous LLM Agent for Job Applications using LangGraph"
+authors = [
+    {name = "User", email = "user@example.com"},
+]
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph",
+    "langchain",
+    "langchain-openai",
+    "langchain-community",
+    "pydantic",
+    "pydantic-settings",
+    "playwright",
+    "sqlmodel",
+    "pdfplumber",
+    "docx2txt",
+    "python-dotenv",
+    "beautifulsoup4", # often needed for parsing job sites
+    "tiktoken",
+    "faiss-cpu", # useful for simple vector retrieval if needed later
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]

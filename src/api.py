@@ -1,0 +1,188 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
+import uuid
+import os
+
+from langgraph.checkpoint.memory import MemorySaver
+from src.graph import create_graph
+from src.database import create_db_and_tables, get_application
+from sqlmodel import Session, select, create_engine
+from src.config import settings
+
+# Initialize DB
+create_db_and_tables()
+
+app = FastAPI(title="Job Application Agent API")
+
+# Allow CORS for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"], # Vite default
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# In-memory graph storage for demo (re-initialized on server restart)
+# In production, use PostgresSaver
+memory = MemorySaver()
+# agent_graph = create_graph_with_checkpointer(memory) # REMOVED
+
+# Refactor: We need the graph compiled with the checkpointer outside main.py
+# Let's import the one from src/graph.py but we need to inject the checkpointer.
+# Or we use a global memory here.
+# Since `src/graph.py` doesn't take arguments in my current implementation, 
+# I will patch it or import the `state_graph` before compilation if possible, 
+# OR just re-implement the compile step here using the function.
+
+# Let's import `create_graph` from src/graph.py. 
+# Wait, `src.graph.create_graph` returns `workflow.compile(interrupt_before=...)`.
+# It does NOT attach a checkpointer by default in that file!
+# I need to modify `src/graph.py` to accept a checkpointer or attach it here.
+# `workflow.compile(checkpointer=memory, ...)`
+# I will hot-patch or modify `src/graph.py` first. For now, I'll assume I can pass it.
+
+# Actually, let's redefine the proper graph setup here to be safe and clear.
+from src.state import AgentState
+from src.graph import create_graph as build_compiled_graph 
+# My specific implementation of create_graph in src/graph.py handles compilation logic.
+# I should update src/graph.py to take an optional checkpointer.
+
+# --- API Models ---
+class RunRequest(BaseModel):
+    resume_path: str = "resume.pdf"
+    
+class RunResponse(BaseModel):
+    thread_id: str
+    status: str
+    message: str
+
+class ApprovalRequest(BaseModel):
+    thread_id: str
+    action: str # "approve" or "reject"
+    feedback: Optional[str] = None
+
+class AgentStateResponse(BaseModel):
+    thread_id: str
+    current_status: str
+    job_details: Optional[Dict[str, Any]] = None
+    tailored_resume: Optional[str] = None
+    cover_letter: Optional[str] = None
+    next_step: Optional[str] = None
+
+# --- Graph Manager (Singleton-ish) ---
+# We need to modify `src/graph.py` to allow passing the checkpointer.
+# For now, I will use a helper to attach it if possible, but LangGraph compilation is final.
+# Strategy: I'll rewrite `create_graph` in `src/graph.py` in the next tool call to be more flexible.
+# For this file, I'll assume `src.graph.create_graph` takes `checkpointer`.
+
+# Placeholder for the graph instance
+graph_app = None
+
+@app.on_event("startup")
+def startup_event():
+    global graph_app
+    from src.graph import create_graph
+    # We will need to update create_graph to accept checkpointer
+    graph_app = create_graph(checkpointer=memory)
+
+@app.post("/run", response_model=RunResponse)
+def start_run(req: RunRequest):
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    # Initial state
+    initial_state = {"resume_path": req.resume_path}
+    
+    # Kick off the run. 
+    # invoke() runs until interrupt.
+    # We probably want to run this in background, but for simple MVP we can wait or use stream() 
+    # and just return when it pauses or finishes. 
+    # Since it does net calls, it might take time. 
+    # For a proper async API, we'd use BackgroundTasks.
+    # But LangGraph `invoke` blocks. 
+    
+    # Let's run it until the first interruption (Review)
+    # We can use `graph_app.invoke(..., config=config)`
+    
+    try:
+        # We start the run. It should run until 'submit_application' interrupt.
+        # This implementation blocks the request until it pauses.
+        events = graph_app.invoke(initial_state, config=config)
+        
+        # Check where it stopped
+        snapshot = graph_app.get_state(config)
+        next_step = snapshot.next if snapshot.next else "done"
+        
+        status = "finished" if not snapshot.next else "paused"
+        
+        return RunResponse(
+            thread_id=thread_id, 
+            status=status,
+            message=f"Agent started. Current step: {next_step}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/status/{thread_id}", response_model=AgentStateResponse)
+def get_status(thread_id: str):
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        snapshot = graph_app.get_state(config)
+        if not snapshot.values:
+             raise HTTPException(status_code=404, detail="Thread not found")
+        
+        state = snapshot.values
+        job = state.get("current_job")
+        
+        job_details = None
+        if job:
+            job_details = job.model_dump() # Pydantic v2
+            
+        return AgentStateResponse(
+            thread_id=thread_id,
+            current_status=state.get("application_status", "unknown"),
+            job_details=job_details,
+            tailored_resume=state.get("tailored_resume"),
+            cover_letter=state.get("cover_letter"),
+            next_step=str(snapshot.next)
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/approve", response_model=RunResponse)
+def approve_run(req: ApprovalRequest):
+    config = {"configurable": {"thread_id": req.thread_id}}
+    
+    if req.action == "reject":
+        # We can just update state to "rejected" and end, or just do nothing.
+        # Ideally we update state.
+        return RunResponse(thread_id=req.thread_id, status="stopped", message="User rejected application.")
+        
+    if req.action == "approve":
+        # Resume the graph!
+        # passing Command(resume=...) or just invoking with None input if strictly interrupted.
+        # LangGraph semantics: invoke(None, config) resumes from interrupt.
+        
+        try:
+            # Resume
+            graph_app.invoke(None, config=config)
+            
+            snapshot = graph_app.get_state(config)
+            status = "finished" if not snapshot.next else "paused"
+            
+            return RunResponse(
+                thread_id=req.thread_id,
+                status=status,
+                message="Application submitted (Resumed)."
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+            
+    raise HTTPException(status_code=400, detail="Invalid action")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
