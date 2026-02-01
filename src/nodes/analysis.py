@@ -4,8 +4,7 @@ from src.modules.analyzer import Analyzer
 
 def analyze_jobs_node(state: AgentState) -> Dict[str, Any]:
     """
-    Node: Scores found jobs and selects the best one (or current one).
-    For simplicity in this linear graph, we'll just pick the first one that fits well.
+    Node: Scores all found jobs and prepares them for user selection.
     """
     print("--- [Node] Analyze Jobs ---")
     
@@ -13,28 +12,30 @@ def analyze_jobs_node(state: AgentState) -> Dict[str, Any]:
     resume = state["parsed_resume"]
     analyzer = Analyzer()
     
-    best_fit = None
-    best_job = None
-    
-    # Limit to analyzing first 3 for speed in demo
-    for job in jobs[:3]:
-        fit = analyzer.analyze_fit(resume, job)
-        print(f"Job: {job.title} | Score: {fit.score}")
-        
-        if fit.score >= 70:
-            # We found a good candidate
-            best_fit = fit
-            best_job = job
-            break
-            
-    if best_job:
-        return {
-            "current_job": best_job,
-            "current_fit": best_fit,
-            "application_status": "analyzed"
-        }
-    else:
+    if not jobs:
         return {
             "application_status": "no_match_found",
-            "feedback_msg": "No jobs met the threshold."
+            "feedback_msg": "No jobs found to analyze.",
+            "analysis_results": []
         }
+    
+    # Analyze ALL jobs (not just first 3)
+    analysis_results = []
+    for job in jobs:
+        fit = analyzer.analyze_fit(resume, job)
+        analysis_results.append(fit)
+        print(f"Job: {job.title} | Score: {fit.score}")
+    
+    # Sort by score descending
+    sorted_results = sorted(
+        zip(jobs, analysis_results),
+        key=lambda x: x[1].score,
+        reverse=True
+    )
+    
+    return {
+        "analysis_results": [result for _, result in sorted_results],
+        "found_jobs": [job for job, _ in sorted_results],  # Re-order jobs by score
+        "application_status": "awaiting_selection",
+        "feedback_msg": f"Analyzed {len(jobs)} jobs. Ready for user selection."
+    }

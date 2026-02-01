@@ -27,17 +27,22 @@ def create_graph(checkpointer=None):
     workflow.add_edge("parse_resume", "find_jobs")
     workflow.add_edge("find_jobs", "analyze_jobs")
     
-    # Conditional logic after analysis
-    def check_match(state):
-        if state.get("application_status") == "no_match_found":
+    # After analysis, check if jobs found
+    def check_analysis_result(state):
+        status = state.get("application_status")
+        if status == "no_match_found":
             return "end"
+        elif status == "awaiting_selection":
+            # Jobs analyzed, waiting for user to select one
+            return "wait_selection"
         return "continue"
-        
+    
     workflow.add_conditional_edges(
         "analyze_jobs",
-        check_match,
+        check_analysis_result,
         {
             "end": END,
+            "wait_selection": "tailor_application",  # Will interrupt before this
             "continue": "tailor_application"
         }
     )
@@ -78,5 +83,10 @@ def create_graph(checkpointer=None):
         }
     )
     
-    # Compile with interrupt before submission for user review
-    return workflow.compile(interrupt_before=["submit_application"], checkpointer=checkpointer)
+    # Compile with interrupts:
+    # 1. After analyze_jobs (for job selection)
+    # 2. Before submit_application (for review)
+    return workflow.compile(
+        interrupt_before=["tailor_application", "submit_application"],
+        checkpointer=checkpointer
+    )
