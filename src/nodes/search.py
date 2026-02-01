@@ -4,21 +4,28 @@ from src.modules.search import get_search_provider
 
 def find_jobs_node(state: AgentState) -> Dict[str, Any]:
     """
-    Node: Searches for relevant jobs.
+    Node: Searches for relevant jobs using location and role filters.
     """
     print("--- [Node] Find Jobs ---")
     
     parsed = state.get("parsed_resume")
     if not parsed:
         return {"feedback_msg": "No parsed resume found to base search on."}
-        
-    # Construct a query
-    query = "Software Engineer"
-    if parsed.skills:
+    
+    # Get search parameters from state
+    search_role = state.get("search_role", "Software Engineer")
+    search_location = state.get("search_location", "Remote")
+    search_limit = state.get("search_limit", 5)
+    
+    # Use role from state, fallback to parsed skills
+    query = search_role
+    if not query and parsed.skills:
         query = parsed.skills[0]
         
+    print(f"Searching for: {query} in {search_location} (limit: {search_limit})")
+        
     provider = get_search_provider("ddg") # Use Real Search
-    jobs = provider.find_jobs(query=query, location="Remote")
+    jobs = provider.find_jobs(query=query, location=search_location)
     
     # Filter DB duplicates
     from src.database import get_application
@@ -26,6 +33,8 @@ def find_jobs_node(state: AgentState) -> Dict[str, Any]:
     for job in jobs:
         if not get_application(job.id):
             new_jobs.append(job)
+            if len(new_jobs) >= search_limit:
+                break
         else:
             print(f"Skipping duplicate job: {job.title}")
             

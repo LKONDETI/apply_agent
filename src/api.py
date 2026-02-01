@@ -53,16 +53,23 @@ from src.graph import create_graph as build_compiled_graph
 # --- API Models ---
 class RunRequest(BaseModel):
     resume_path: str = "resume.pdf"
+    location: str = "Remote"
+    role: str = "Software Engineer"
     
 class RunResponse(BaseModel):
     thread_id: str
     status: str
     message: str
+    jobs: Optional[List[Dict[str, Any]]] = None
 
 class ApprovalRequest(BaseModel):
     thread_id: str
     action: str # "approve" or "reject"
     feedback: Optional[str] = None
+
+class GenerateRequest(BaseModel):
+    thread_id: str
+    job_id: str
 
 class AgentStateResponse(BaseModel):
     thread_id: str
@@ -71,6 +78,7 @@ class AgentStateResponse(BaseModel):
     tailored_resume: Optional[str] = None
     cover_letter: Optional[str] = None
     next_step: Optional[str] = None
+    jobs: Optional[List[Dict[str, Any]]] = None
 
 # --- Graph Manager (Singleton-ish) ---
 # We need to modify `src/graph.py` to allow passing the checkpointer.
@@ -93,28 +101,47 @@ def start_run(req: RunRequest):
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
     
-    # Initial state
-    initial_state = {"resume_path": req.resume_path}
-    
-    # Kick off the run. 
-    # invoke() runs until interrupt.
-    # We probably want to run this in background, but for simple MVP we can wait or use stream() 
-    # and just return when it pauses or finishes. 
-    # Since it does net calls, it might take time. 
-    # For a proper async API, we'd use BackgroundTasks.
-    # But LangGraph `invoke` blocks. 
-    
-    # Let's run it until the first interruption (Review)
-    # We can use `graph_app.invoke(..., config=config)`
+    # Initial state with search filters
+    initial_state = {
+        "resume_path": req.resume_path,
+        "search_location": req.location,
+        "search_role": req.role,
+        "search_limit": 5
+    }
     
     try:
-        # We start the run. It should run until 'submit_application' interrupt.
-        # This implementation blocks the request until it pauses.
+        # Run until first interrupt (tailor_application after analysis)
         events = graph_app.invoke(initial_state, config=config)
         
         # Check where it stopped
         snapshot = graph_app.get_state(config)
         next_step = snapshot.next if snapshot.next else "done"
+        state_values = snapshot.values
+        
+        # If we paused after analysis, return job list
+        if state_values.get("application_status") == "awaiting_selection":
+            jobs = state_values.get("found_jobs", [])
+            analysis_results = state_values.get("analysis_results", [])
+            
+            # Format jobs with scores
+            job_list = []
+            for i, (job, fit) in enumerate(zip(jobs, analysis_results)):
+                job_list.append({
+                    "id": job.id,
+                    "title": job.title,
+                    "company": job.company,
+                    "location": job.location,
+                    "url": job.url,
+                    "score": fit.score,
+                    "description": job.description[:200] if hasattr(job, 'description') else ""
+                })
+            
+            return RunResponse(
+                thread_id=thread_id,
+                status="awaiting_selection",
+                message=f"Found {len(job_list)} jobs. Select one to generate application.",
+                jobs=job_list
+            )
         
         status = "finished" if not snapshot.next else "paused"
         
@@ -140,6 +167,22 @@ def get_status(thread_id: str):
         job_details = None
         if job:
             job_details = job.model_dump() # Pydantic v2
+        
+        # Format jobs list if in selection mode
+        jobs_list = None
+        if state.get("application_status") == "awaiting_selection":
+            jobs = state.get("found_jobs", [])
+            analysis_results = state.get("analysis_results", [])
+            jobs_list = []
+            for job, fit in zip(jobs, analysis_results):
+                jobs_list.append({
+                    "id": job.id,
+                    "title": job.title,
+                    "company": job.company,
+                    "location": job.location,
+                    "url": job.url,
+                    "score": fit.score
+                })
             
         return AgentStateResponse(
             thread_id=thread_id,
@@ -147,7 +190,8 @@ def get_status(thread_id: str):
             job_details=job_details,
             tailored_resume=state.get("tailored_resume"),
             cover_letter=state.get("cover_letter"),
-            next_step=str(snapshot.next)
+            next_step=str(snapshot.next),
+            jobs=jobs_list
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -157,8 +201,6 @@ def approve_run(req: ApprovalRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
     
     if req.action == "reject":
-        # Update state to mark rejection, then resume graph
-        # The graph will route to handle_rejection node
         try:
             # Update the state with rejection signal
             graph_app.update_state(
@@ -166,26 +208,42 @@ def approve_run(req: ApprovalRequest):
                 {"user_action": "reject"}
             )
             
-            # Resume the graph - it will process rejection and find next job
+            # Resume the graph - it will process rejection and return to selection
             graph_app.invoke(None, config=config)
             
             # Get updated state
             snapshot = graph_app.get_state(config)
             status = "finished" if not snapshot.next else "paused"
-            
-            # Check if we found a new job or ran out of jobs
             state_values = snapshot.values
-            if state_values.get("application_status") == "no_more_jobs":
+            
+            # Check if we're back at job selection
+            if state_values.get("application_status") == "awaiting_selection":
+                jobs = state_values.get("found_jobs", [])
+                analysis_results = state_values.get("analysis_results", [])
+                
+                # Format remaining jobs
+                job_list = []
+                for job, fit in zip(jobs, analysis_results):
+                    job_list.append({
+                        "id": job.id,
+                        "title": job.title,
+                        "company": job.company,
+                        "location": job.location,
+                        "url": job.url,
+                        "score": fit.score
+                    })
+                
+                return RunResponse(
+                    thread_id=req.thread_id,
+                    status="awaiting_selection",
+                    message=f"{len(job_list)} jobs remaining. Select another one.",
+                    jobs=job_list
+                )
+            elif state_values.get("application_status") == "no_more_jobs":
                 return RunResponse(
                     thread_id=req.thread_id,
                     status="finished",
-                    message="No more suitable jobs found."
-                )
-            elif status == "paused":
-                return RunResponse(
-                    thread_id=req.thread_id,
-                    status=status,
-                    message="Found new job opportunity for review."
+                    message="All jobs rejected. No more opportunities available."
                 )
             else:
                 return RunResponse(
@@ -220,6 +278,61 @@ def approve_run(req: ApprovalRequest):
             raise HTTPException(status_code=500, detail=str(e))
             
     raise HTTPException(status_code=400, detail="Invalid action")
+
+@app.post("/generate", response_model=RunResponse)
+def generate_application(req: GenerateRequest):
+    """
+    Selects a specific job and generates tailored application materials.
+    """
+    config = {"configurable": {"thread_id": req.thread_id}}
+    
+    try:
+        snapshot = graph_app.get_state(config)
+        if not snapshot.values:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        
+        state = snapshot.values
+        jobs = state.get("found_jobs", [])
+        analysis_results = state.get("analysis_results", [])
+        
+        # Find the selected job
+        selected_job = None
+        selected_fit = None
+        for job, fit in zip(jobs, analysis_results):
+            if job.id == req.job_id:
+                selected_job = job
+                selected_fit = fit
+                break
+        
+        if not selected_job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # Update state with selected job
+        graph_app.update_state(
+            config,
+            {
+                "current_job": selected_job,
+                "current_fit": selected_fit,
+                "application_status": "generating"
+            }
+        )
+        
+        # Resume graph - it will go to tailor_application then interrupt at submit_application
+        graph_app.invoke(None, config=config)
+        
+        # Get updated state with tailored content
+        snapshot = graph_app.get_state(config)
+        status = "finished" if not snapshot.next else "paused"
+        
+        return RunResponse(
+            thread_id=req.thread_id,
+            status=status,
+            message="Application generated. Ready for review."
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history")
 def get_history():
