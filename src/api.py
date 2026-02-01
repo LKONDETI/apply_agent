@@ -201,8 +201,6 @@ def approve_run(req: ApprovalRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
     
     if req.action == "reject":
-        # Update state to mark rejection, then resume graph
-        # The graph will route to handle_rejection node
         try:
             # Update the state with rejection signal
             graph_app.update_state(
@@ -210,26 +208,42 @@ def approve_run(req: ApprovalRequest):
                 {"user_action": "reject"}
             )
             
-            # Resume the graph - it will process rejection and find next job
+            # Resume the graph - it will process rejection and return to selection
             graph_app.invoke(None, config=config)
             
             # Get updated state
             snapshot = graph_app.get_state(config)
             status = "finished" if not snapshot.next else "paused"
-            
-            # Check if we found a new job or ran out of jobs
             state_values = snapshot.values
-            if state_values.get("application_status") == "no_more_jobs":
+            
+            # Check if we're back at job selection
+            if state_values.get("application_status") == "awaiting_selection":
+                jobs = state_values.get("found_jobs", [])
+                analysis_results = state_values.get("analysis_results", [])
+                
+                # Format remaining jobs
+                job_list = []
+                for job, fit in zip(jobs, analysis_results):
+                    job_list.append({
+                        "id": job.id,
+                        "title": job.title,
+                        "company": job.company,
+                        "location": job.location,
+                        "url": job.url,
+                        "score": fit.score
+                    })
+                
+                return RunResponse(
+                    thread_id=req.thread_id,
+                    status="awaiting_selection",
+                    message=f"{len(job_list)} jobs remaining. Select another one.",
+                    jobs=job_list
+                )
+            elif state_values.get("application_status") == "no_more_jobs":
                 return RunResponse(
                     thread_id=req.thread_id,
                     status="finished",
-                    message="No more suitable jobs found."
-                )
-            elif status == "paused":
-                return RunResponse(
-                    thread_id=req.thread_id,
-                    status=status,
-                    message="Found new job opportunity for review."
+                    message="All jobs rejected. No more opportunities available."
                 )
             else:
                 return RunResponse(

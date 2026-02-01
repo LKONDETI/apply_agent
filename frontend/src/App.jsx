@@ -92,9 +92,15 @@ function App() {
       // Update status from response
       setStatus(res.data.status)
 
-      // If rejected and still paused, fetch new job details
-      if (action === "reject" && res.data.status === "paused") {
-        // Wait a brief moment for state to update
+      // If rejected and returned to selection, update job list
+      if (action === "reject" && res.data.status === "awaiting_selection" && res.data.jobs) {
+        setJobs(res.data.jobs)
+        // Optionally fetch full status for updated data
+        setTimeout(() => {
+          fetchStatus(threadId)
+        }, 500)
+      } else if (action === "reject" && res.data.status === "paused") {
+        // Old behavior - if still paused, fetch new job details
         setTimeout(() => {
           fetchStatus(threadId)
         }, 500)

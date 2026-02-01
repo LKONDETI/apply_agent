@@ -67,19 +67,22 @@ def create_graph(checkpointer=None):
         }
     )
     
-    # After handling rejection, check if we found another job
+    # After handling rejection, check if there are remaining jobs
     def check_rejection_result(state):
         status = state.get("application_status")
         if status == "no_more_jobs":
             return "end"
-        return "retry"  # Go back to tailor the new job
+        elif status == "awaiting_selection":
+            # Return to job selection - will interrupt at tailor_application
+            return "retry"
+        return "retry"
     
     workflow.add_conditional_edges(
         "handle_rejection",
         check_rejection_result,
         {
             "end": END,
-            "retry": "tailor_application"
+            "retry": "tailor_application"  # Goes back to interrupt for new selection
         }
     )
     
