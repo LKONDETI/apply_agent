@@ -5,6 +5,7 @@ from src.nodes.search import find_jobs_node
 from src.nodes.analysis import analyze_jobs_node
 from src.nodes.tailoring import tailor_application_node
 from src.nodes.action import submit_application_node
+from src.nodes.rejection import handle_rejection_node
 
 def create_graph(checkpointer=None):
     """
@@ -18,6 +19,7 @@ def create_graph(checkpointer=None):
     workflow.add_node("analyze_jobs", analyze_jobs_node)
     workflow.add_node("tailor_application", tailor_application_node)
     workflow.add_node("submit_application", submit_application_node)
+    workflow.add_node("handle_rejection", handle_rejection_node)
     
     # Define Edges
     workflow.set_entry_point("parse_resume")
@@ -41,10 +43,40 @@ def create_graph(checkpointer=None):
     )
     
     workflow.add_edge("tailor_application", "submit_application")
-    workflow.add_edge("submit_application", END)
     
-    # Compile with MemorySaver to support interrupts/checkpointing
-    # Although MemorySaver isn't strictly needed for just 'interrupt', it's good practice.
-    # BUT, to interrupt, we must pass interrupt_before to compile().
+    # Conditional after submission - check if user rejected
+    def check_user_action(state):
+        user_action = state.get("user_action")
+        if user_action == "reject":
+            return "rejected"
+        elif user_action == "approve":
+            return "approved"
+        return "approved"  # Default to approved when resuming from interrupt
     
+    workflow.add_conditional_edges(
+        "submit_application",
+        check_user_action,
+        {
+            "rejected": "handle_rejection",
+            "approved": END
+        }
+    )
+    
+    # After handling rejection, check if we found another job
+    def check_rejection_result(state):
+        status = state.get("application_status")
+        if status == "no_more_jobs":
+            return "end"
+        return "retry"  # Go back to tailor the new job
+    
+    workflow.add_conditional_edges(
+        "handle_rejection",
+        check_rejection_result,
+        {
+            "end": END,
+            "retry": "tailor_application"
+        }
+    )
+    
+    # Compile with interrupt before submission for user review
     return workflow.compile(interrupt_before=["submit_application"], checkpointer=checkpointer)

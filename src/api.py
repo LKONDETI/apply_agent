@@ -157,16 +157,54 @@ def approve_run(req: ApprovalRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
     
     if req.action == "reject":
-        # We can just update state to "rejected" and end, or just do nothing.
-        # Ideally we update state.
-        return RunResponse(thread_id=req.thread_id, status="stopped", message="User rejected application.")
+        # Update state to mark rejection, then resume graph
+        # The graph will route to handle_rejection node
+        try:
+            # Update the state with rejection signal
+            graph_app.update_state(
+                config,
+                {"user_action": "reject"}
+            )
+            
+            # Resume the graph - it will process rejection and find next job
+            graph_app.invoke(None, config=config)
+            
+            # Get updated state
+            snapshot = graph_app.get_state(config)
+            status = "finished" if not snapshot.next else "paused"
+            
+            # Check if we found a new job or ran out of jobs
+            state_values = snapshot.values
+            if state_values.get("application_status") == "no_more_jobs":
+                return RunResponse(
+                    thread_id=req.thread_id,
+                    status="finished",
+                    message="No more suitable jobs found."
+                )
+            elif status == "paused":
+                return RunResponse(
+                    thread_id=req.thread_id,
+                    status=status,
+                    message="Found new job opportunity for review."
+                )
+            else:
+                return RunResponse(
+                    thread_id=req.thread_id,
+                    status=status,
+                    message="Rejection processed."
+                )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
         
     if req.action == "approve":
-        # Resume the graph!
-        # passing Command(resume=...) or just invoking with None input if strictly interrupted.
-        # LangGraph semantics: invoke(None, config) resumes from interrupt.
-        
+        # Resume the graph with approval signal
         try:
+            # Update state with approval
+            graph_app.update_state(
+                config,
+                {"user_action": "approve"}
+            )
+            
             # Resume
             graph_app.invoke(None, config=config)
             
@@ -176,7 +214,7 @@ def approve_run(req: ApprovalRequest):
             return RunResponse(
                 thread_id=req.thread_id,
                 status=status,
-                message="Application submitted (Resumed)."
+                message="Application submitted successfully."
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))

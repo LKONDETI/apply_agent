@@ -50,11 +50,23 @@ function App() {
         thread_id: threadId,
         action: action
       })
+
+      // Update status from response
       setStatus(res.data.status)
-      // Refresh data
-      fetchStatus(threadId)
+
+      // If rejected and still paused, fetch new job details
+      if (action === "reject" && res.data.status === "paused") {
+        // Wait a brief moment for state to update
+        setTimeout(() => {
+          fetchStatus(threadId)
+        }, 500)
+      } else {
+        // For approve or finished, refresh data
+        fetchStatus(threadId)
+      }
     } catch (e) {
       console.error(e)
+      alert("Failed to process action")
     }
     setLoading(false)
   }
@@ -125,8 +137,8 @@ function App() {
                     <p className="text-slate-500">{data.job_details?.company}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${status === "paused" ? "bg-amber-100 text-amber-700" :
-                      status === "finished" ? "bg-green-100 text-green-700" :
-                        "bg-blue-100 text-blue-700"
+                    status === "finished" ? "bg-green-100 text-green-700" :
+                      "bg-blue-100 text-blue-700"
                     }`}>
                     {status.toUpperCase()}
                   </span>
@@ -214,8 +226,8 @@ function App() {
                       <td className="px-6 py-4">{app.title}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${app.fit_score >= 80 ? 'bg-green-100 text-green-800' :
-                            app.fit_score >= 60 ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
+                          app.fit_score >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
                           }`}>
                           {app.fit_score}
                         </span>

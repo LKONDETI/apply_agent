@@ -32,6 +32,10 @@ class AgentState(TypedDict):
     tailored_resume: str
     cover_letter: str
     
+    # Rejection tracking
+    rejected_jobs: List[str]  # List of job IDs that user rejected
+    user_action: str  # "approve", "reject", or None
+    
     # Status
     feedback_msg: str
     application_status: str # "pending_review", "approved", "submitted", "skipped"
