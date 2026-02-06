@@ -55,6 +55,7 @@ class RunRequest(BaseModel):
     resume_path: str = "resume.pdf"
     location: str = "Remote"
     role: str = "Software Engineer"
+    job_type: str = "Full-time"
     
 class RunResponse(BaseModel):
     thread_id: str
@@ -106,6 +107,7 @@ def start_run(req: RunRequest):
         "resume_path": req.resume_path,
         "search_location": req.location,
         "search_role": req.role,
+        "search_job_type": req.job_type,
         "search_limit": 5
     }
     

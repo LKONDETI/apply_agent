@@ -15,12 +15,17 @@ def find_jobs_node(state: AgentState) -> Dict[str, Any]:
     # Get search parameters from state
     search_role = state.get("search_role", "Software Engineer")
     search_location = state.get("search_location", "Remote")
+    search_job_type = state.get("search_job_type", "Full-time")
     search_limit = state.get("search_limit", 5)
     
     # Use role from state, fallback to parsed skills
     query = search_role
     if not query and parsed.skills:
         query = parsed.skills[0]
+    
+    # Include job type in query for better filtering
+    if search_job_type:
+        query = f"{search_job_type} {query}"
         
     print(f"Searching for: {query} in {search_location} (limit: {search_limit})")
         

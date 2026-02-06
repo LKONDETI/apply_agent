@@ -11,6 +11,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [location, setLocation] = useState("Remote")
   const [role, setRole] = useState("Software Engineer")
+  const [jobType, setJobType] = useState("Full-time")
   const [jobs, setJobs] = useState([])
 
   const startRun = async () => {
@@ -19,7 +20,8 @@ function App() {
       const res = await axios.post(`${API_Base}/run`, {
         resume_path: "resume.pdf",
         location,
-        role
+        role,
+        job_type: jobType
       })
       setThreadId(res.data.thread_id)
       setStatus(res.data.status)
@@ -149,7 +151,7 @@ function App() {
           {status === "idle" && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-4">
               <h2 className="text-lg font-semibold mb-4">Search Preferences</h2>
-              <div className="grid md:grid-cols-2 gap-4 mb-4">
+              <div className="grid md:grid-cols-3 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
                     <RoleIcon size={16} />
@@ -175,6 +177,23 @@ function App() {
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="e.g., Remote, New York"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
+                    <Briefcase size={16} />
+                    Job Type
+                  </label>
+                  <select
+                    value={jobType}
+                    onChange={(e) => setJobType(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="Full-time">Full-time</option>
+                    <option value="Part-time">Part-time</option>
+                    <option value="Contract">Contract</option>
+                    <option value="Freelance">Freelance</option>
+                    <option value="Internship">Internship</option>
+                  </select>
                 </div>
               </div>
               <button

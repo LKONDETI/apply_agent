@@ -35,6 +35,7 @@ class AgentState(TypedDict):
     # Search filters
     search_location: str
     search_role: str
+    search_job_type: str
     search_limit: int
     resume_path: str
     
