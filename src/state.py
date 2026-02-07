@@ -36,6 +36,7 @@ class AgentState(TypedDict):
     search_location: str
     search_role: str
     search_job_type: str
+    search_time_posted: str  # "any", "24h", "3d", "7d", "14d", "30d"
     search_limit: int
     resume_path: str
     

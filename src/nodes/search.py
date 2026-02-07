@@ -16,6 +16,7 @@ def find_jobs_node(state: AgentState) -> Dict[str, Any]:
     search_role = state.get("search_role", "Software Engineer")
     search_location = state.get("search_location", "Remote")
     search_job_type = state.get("search_job_type", "Full-time")
+    search_time_posted = state.get("search_time_posted", "any")
     search_limit = state.get("search_limit", 5)
     
     # Use role from state, fallback to parsed skills
@@ -26,8 +27,18 @@ def find_jobs_node(state: AgentState) -> Dict[str, Any]:
     # Include job type in query for better filtering
     if search_job_type:
         query = f"{search_job_type} {query}"
+    
+    # Add time filter hint to query based on selection
+    if search_time_posted == "24h":
+        query = f"{query} posted today"
+    elif search_time_posted == "3d":
+        query = f"{query} posted this week"
+    elif search_time_posted in ["7d", "14d"]:
+        query = f"{query} posted recently"
+    elif search_time_posted == "30d":
+        query = f"{query} posted this month"
         
-    print(f"Searching for: {query} in {search_location} (limit: {search_limit})")
+    print(f"Searching for: {query} in {search_location} (limit: {search_limit}, time: {search_time_posted})")
         
     provider = get_search_provider("ddg") # Use Real Search
     jobs = provider.find_jobs(query=query, location=search_location)

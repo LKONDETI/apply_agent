@@ -12,6 +12,7 @@ function App() {
   const [location, setLocation] = useState("Remote")
   const [role, setRole] = useState("Software Engineer")
   const [jobType, setJobType] = useState("Full-time")
+  const [timePosted, setTimePosted] = useState("any")
   const [jobs, setJobs] = useState([])
 
   const startRun = async () => {
@@ -21,7 +22,8 @@ function App() {
         resume_path: "resume.pdf",
         location,
         role,
-        job_type: jobType
+        job_type: jobType,
+        time_posted: timePosted
       })
       setThreadId(res.data.thread_id)
       setStatus(res.data.status)
@@ -151,7 +153,7 @@ function App() {
           {status === "idle" && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-4">
               <h2 className="text-lg font-semibold mb-4">Search Preferences</h2>
-              <div className="grid md:grid-cols-3 gap-4 mb-4">
+              <div className="grid md:grid-cols-4 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
                     <RoleIcon size={16} />
@@ -193,6 +195,24 @@ function App() {
                     <option value="Contract">Contract</option>
                     <option value="Freelance">Freelance</option>
                     <option value="Internship">Internship</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+                    Date Posted
+                  </label>
+                  <select
+                    value={timePosted}
+                    onChange={(e) => setTimePosted(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="any">Any time</option>
+                    <option value="24h">Last 24 hrs</option>
+                    <option value="3d">Last 3 days</option>
+                    <option value="7d">Last 7 days</option>
+                    <option value="14d">Last 14 days</option>
+                    <option value="30d">Last one month</option>
                   </select>
                 </div>
               </div>
