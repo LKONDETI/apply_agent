@@ -1,9 +1,151 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
-import { FileText, CheckCircle, XCircle, Play, Loader2, Briefcase, MapPin, Briefcase as RoleIcon } from 'lucide-react'
+import { FileText, CheckCircle, XCircle, Play, Loader2, Briefcase, MapPin, Upload, AlertCircle } from 'lucide-react'
 
 const API_Base = "http://localhost:8000"
 
+// ─── Resume Upload Component ───────────────────────────────────────────────
+function ResumeUploader({ onUploadComplete }) {
+  const [uploadStatus, setUploadStatus] = useState('idle') // idle | uploading | done | error
+  const [uploadedFile, setUploadedFile] = useState(null)   // { filename, size_bytes }
+  const [errorMsg, setErrorMsg] = useState('')
+  const [isDragging, setIsDragging] = useState(false)
+  const inputRef = useRef(null)
+
+  const handleFile = async (file) => {
+    if (!file) return
+
+    const ext = file.name.split('.').pop().toLowerCase()
+    if (!['pdf', 'docx', 'txt'].includes(ext)) {
+      setUploadStatus('error')
+      setErrorMsg(`"${file.name}" is not supported. Please upload a PDF, DOCX, or TXT file.`)
+      return
+    }
+
+    setUploadStatus('uploading')
+    setErrorMsg('')
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    try {
+      const res = await axios.post(`${API_Base}/upload-resume`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      setUploadedFile({ filename: res.data.filename, sizeBytes: res.data.size_bytes })
+      setUploadStatus('done')
+      onUploadComplete(res.data.resume_path)
+    } catch (e) {
+      const detail = e.response?.data?.detail || 'Upload failed. Please try again.'
+      setErrorMsg(detail)
+      setUploadStatus('error')
+    }
+  }
+
+  const onInputChange = (e) => handleFile(e.target.files[0])
+
+  const onDrop = (e) => {
+    e.preventDefault()
+    setIsDragging(false)
+    handleFile(e.dataTransfer.files[0])
+  }
+
+  const onDragOver = (e) => { e.preventDefault(); setIsDragging(true) }
+  const onDragLeave = () => setIsDragging(false)
+
+  const reset = () => {
+    setUploadStatus('idle')
+    setUploadedFile(null)
+    setErrorMsg('')
+    onUploadComplete(null)
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  // ── Success State
+  if (uploadStatus === 'done' && uploadedFile) {
+    const sizeKB = (uploadedFile.sizeBytes / 1024).toFixed(1)
+    return (
+      <div className="flex items-center justify-between px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+        <div className="flex items-center gap-3">
+          <CheckCircle size={20} className="text-green-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-green-800">{uploadedFile.filename}</p>
+            <p className="text-xs text-green-600">{sizeKB} KB · Ready to use</p>
+          </div>
+        </div>
+        <button
+          onClick={reset}
+          title="Remove and upload a different file"
+          className="text-green-500 hover:text-green-700 transition ml-4"
+        >
+          <XCircle size={18} />
+        </button>
+      </div>
+    )
+  }
+
+  // ── Error State
+  if (uploadStatus === 'error') {
+    return (
+      <div>
+        <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+          <AlertCircle size={20} className="text-red-500 shrink-0" />
+          <p className="text-sm text-red-700 flex-1">{errorMsg}</p>
+          <button onClick={reset} className="text-red-400 hover:text-red-600 transition ml-2">
+            <XCircle size={18} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Upload Zone (idle or uploading)
+  return (
+    <div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.docx,.txt"
+        className="hidden"
+        onChange={onInputChange}
+        id="resume-file-input"
+      />
+      <label
+        htmlFor="resume-file-input"
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        className={`
+          flex flex-col items-center justify-center gap-2 px-4 py-5 rounded-xl border-2 border-dashed cursor-pointer
+          transition-all duration-150
+          ${isDragging
+            ? 'border-blue-500 bg-blue-50 scale-[1.01]'
+            : 'border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50'
+          }
+        `}
+      >
+        {uploadStatus === 'uploading' ? (
+          <>
+            <Loader2 size={24} className="text-blue-500 animate-spin" />
+            <p className="text-sm font-medium text-blue-600">Uploading…</p>
+          </>
+        ) : (
+          <>
+            <Upload size={22} className="text-slate-400" />
+            <div className="text-center">
+              <p className="text-sm font-medium text-slate-700">
+                <span className="text-blue-600">Click to upload</span> or drag &amp; drop
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">PDF, DOCX, or TXT</p>
+            </div>
+          </>
+        )}
+      </label>
+    </div>
+  )
+}
+
+// ─── Main App ──────────────────────────────────────────────────────────────
 function App() {
   const [threadId, setThreadId] = useState(null)
   const [status, setStatus] = useState("idle") // idle, awaiting_selection, paused, finished
@@ -15,11 +157,15 @@ function App() {
   const [timePosted, setTimePosted] = useState("any")
   const [jobs, setJobs] = useState([])
 
+  // Resume upload state
+  const [uploadedResumePath, setUploadedResumePath] = useState(null)
+
   const startRun = async () => {
     setLoading(true)
     try {
       const res = await axios.post(`${API_Base}/run`, {
-        resume_path: "resume.pdf",
+        // Use the uploaded path, or fall back to the default resume.pdf
+        resume_path: uploadedResumePath || "resume.pdf",
         location,
         role,
         job_type: jobType,
@@ -45,12 +191,10 @@ function App() {
       const res = await axios.get(`${API_Base}/status/${tid}`)
       setData(res.data)
 
-      // Update jobs list if in selection mode
       if (res.data.jobs) {
         setJobs(res.data.jobs)
       }
 
-      // Map LangGraph status to UI status
       if (res.data.current_status === "awaiting_selection") {
         setStatus("awaiting_selection")
       } else if (res.data.next_step && res.data.next_step.includes("submit_application")) {
@@ -72,12 +216,8 @@ function App() {
         thread_id: threadId,
         job_id: jobId
       })
-
       setStatus(res.data.status)
-      // Fetch updated data with tailored content
-      setTimeout(() => {
-        fetchStatus(threadId)
-      }, 500)
+      setTimeout(() => { fetchStatus(threadId) }, 500)
     } catch (e) {
       console.error(e)
       alert("Failed to generate application")
@@ -93,23 +233,14 @@ function App() {
         action: action
       })
 
-      // Update status from response
       setStatus(res.data.status)
 
-      // If rejected and returned to selection, update job list
       if (action === "reject" && res.data.status === "awaiting_selection" && res.data.jobs) {
         setJobs(res.data.jobs)
-        // Optionally fetch full status for updated data
-        setTimeout(() => {
-          fetchStatus(threadId)
-        }, 500)
+        setTimeout(() => { fetchStatus(threadId) }, 500)
       } else if (action === "reject" && res.data.status === "paused") {
-        // Old behavior - if still paused, fetch new job details
-        setTimeout(() => {
-          fetchStatus(threadId)
-        }, 500)
+        setTimeout(() => { fetchStatus(threadId) }, 500)
       } else {
-        // For approve or finished, refresh data
         fetchStatus(threadId)
       }
     } catch (e) {
@@ -149,14 +280,28 @@ function App() {
             Job Agent Dashboard
           </h1>
 
-          {/* Filter Inputs */}
+          {/* Search Preferences Form */}
           {status === "idle" && (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-4">
               <h2 className="text-lg font-semibold mb-4">Search Preferences</h2>
+
+              {/* Resume Upload */}
+              <div className="mb-5">
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
+                  <FileText size={16} />
+                  Resume
+                  <span className="ml-1 text-xs text-slate-400 font-normal">
+                    {uploadedResumePath ? '· Uploaded ✓' : '· Using default resume.pdf if not uploaded'}
+                  </span>
+                </label>
+                <ResumeUploader onUploadComplete={(path) => setUploadedResumePath(path)} />
+              </div>
+
+              {/* Job Filters */}
               <div className="grid md:grid-cols-4 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
-                    <RoleIcon size={16} />
+                    <Briefcase size={16} />
                     Role
                   </label>
                   <input
@@ -216,10 +361,11 @@ function App() {
                   </select>
                 </div>
               </div>
+
               <button
                 onClick={startRun}
                 disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium disabled:opacity-50 transition"
               >
                 {loading ? <Loader2 className="animate-spin" /> : <Play size={18} />}
                 Start New Application
@@ -298,7 +444,7 @@ function App() {
             </div>
           )}
 
-          {/* Application Review (existing paused state) */}
+          {/* Application Review */}
           {(status === "paused") && data && data.job_details && (
             <div className="grid gap-6">
               {/* Status Card */}
@@ -356,7 +502,7 @@ function App() {
                       className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium flex items-center gap-2 shadow-sm"
                     >
                       <CheckCircle size={18} />
-                      Approve & Submit
+                      Approve &amp; Submit
                     </button>
                   </div>
                 </div>

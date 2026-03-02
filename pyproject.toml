@@ -7,6 +7,9 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
     "langgraph",
     "langchain",
     "langchain-openai",
@@ -21,6 +24,7 @@ dependencies = [
     "beautifulsoup4", # often needed for parsing job sites
     "tiktoken",
     "faiss-cpu", # useful for simple vector retrieval if needed later
+    "ddgs",
 ]
 
 [build-system]

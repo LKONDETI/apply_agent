@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
 import os
+import shutil
+from pathlib import Path
 
 from langgraph.checkpoint.memory import MemorySaver
 from src.graph import create_graph
@@ -91,12 +93,48 @@ class AgentStateResponse(BaseModel):
 # Placeholder for the graph instance
 graph_app = None
 
+# Directory to store uploaded resumes
+UPLOADS_DIR = Path("uploads")
+
 @app.on_event("startup")
 def startup_event():
     global graph_app
+    # Ensure uploads directory exists
+    UPLOADS_DIR.mkdir(exist_ok=True)
     from src.graph import create_graph
-    # We will need to update create_graph to accept checkpointer
     graph_app = create_graph(checkpointer=memory)
+
+
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+
+@app.post("/upload-resume")
+async def upload_resume(file: UploadFile = File(...)):
+    """
+    Accepts a resume file (PDF, DOCX, or TXT), saves it to the uploads/ directory,
+    and returns the saved file path to be passed into the /run endpoint.
+    """
+    ext = Path(file.filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{ext}'. Please upload a PDF, DOCX, or TXT file."
+        )
+
+    # Use UUID prefix to avoid filename collisions
+    unique_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    save_path = UPLOADS_DIR / unique_filename
+
+    try:
+        with save_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    finally:
+        file.file.close()
+
+    return {
+        "resume_path": str(save_path),
+        "filename": file.filename,
+        "size_bytes": save_path.stat().st_size
+    }
 
 @app.post("/run", response_model=RunResponse)
 def start_run(req: RunRequest):
