@@ -4,7 +4,6 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
 import os
-import shutil
 from pathlib import Path
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -93,8 +92,9 @@ class AgentStateResponse(BaseModel):
 # Placeholder for the graph instance
 graph_app = None
 
-# Directory to store uploaded resumes
-UPLOADS_DIR = Path("uploads")
+# Directory to store uploaded resumes — use absolute path so files can be
+# reliably found no matter where the process was launched from.
+UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
 
 @app.on_event("startup")
 def startup_event():
@@ -125,10 +125,13 @@ async def upload_resume(file: UploadFile = File(...)):
     save_path = UPLOADS_DIR / unique_filename
 
     try:
-        with save_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Use await file.read() for proper async file handling.
+        # shutil.copyfileobj on a SpooledTemporaryFile can produce a truncated/
+        # corrupt file because it doesn't seek to position 0 first.
+        contents = await file.read()
+        save_path.write_bytes(contents)
     finally:
-        file.file.close()
+        await file.close()
 
     return {
         "resume_path": str(save_path),
