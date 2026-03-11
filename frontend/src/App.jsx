@@ -3,8 +3,13 @@ import axios from 'axios'
 import {
   FileText, CheckCircle, XCircle, Play, Loader2,
   Briefcase, MapPin, Upload, AlertCircle, LayoutDashboard,
-  Search, ClipboardList
+  Search, ClipboardList, TrendingUp, Award, Clock
 } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis
+} from 'recharts'
 
 const API_Base = "http://localhost:8000"
 
@@ -132,13 +137,255 @@ function ResumeUploader({ onUploadComplete }) {
   )
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────
+const SCORE_COLORS = { high: '#22c55e', mid: '#f59e0b', low: '#ef4444' }
+const STATUS_COLORS = { approved: '#22c55e', rejected: '#ef4444', pending: '#f59e0b', submitted: '#3b82f6' }
+
+function scoreColor(s) {
+  if (s >= 80) return SCORE_COLORS.high
+  if (s >= 60) return SCORE_COLORS.mid
+  return SCORE_COLORS.low
+}
+
+function scoreBadge(s) {
+  if (s >= 80) return 'bg-green-100 text-green-800'
+  if (s >= 60) return 'bg-yellow-100 text-yellow-800'
+  return 'bg-red-100 text-red-800'
+}
+
+function relativeDate(iso) {
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000)
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
+
+// ─── Stat Card ─────────────────────────────────────────────────────────────
+function StatCard({ label, value, icon: Icon, color, sub }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+      <div className={`p-3 rounded-xl ${color}`}>
+        <Icon size={22} className="text-white" />
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-slate-800">{value}</p>
+        <p className="text-sm text-slate-500">{label}</p>
+        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  )
+}
+
 // ─── Dashboard Tab ─────────────────────────────────────────────────────────
 function DashboardTab() {
+  const [history, setHistory] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    axios.get(`${API_Base}/history`)
+      .then(r => setHistory(r.data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-32 text-slate-400">
+        <Loader2 size={32} className="animate-spin mr-3" />
+        <span>Loading dashboard…</span>
+      </div>
+    )
+  }
+
+  if (history.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 text-slate-400 select-none">
+        <LayoutDashboard size={56} strokeWidth={1.2} className="mb-4 text-slate-300" />
+        <h2 className="text-xl font-semibold text-slate-500 mb-1">No data yet</h2>
+        <p className="text-sm">Start a job search to populate your dashboard.</p>
+      </div>
+    )
+  }
+
+  // ── Computed values ──────────────────────────────────────────────────────
+  const approved = history.filter(a => a.status === 'approved' || a.status === 'submitted').length
+  const rejected = history.filter(a => a.status === 'rejected').length
+  const avgScore = Math.round(history.reduce((s, a) => s + (a.fit_score || 0), 0) / history.length)
+  const recent = [...history].sort((a, b) => new Date(b.applied_at) - new Date(a.applied_at)).slice(0, 5)
+
+  // Fit score buckets
+  const scoreBuckets = [
+    { name: '< 60', count: history.filter(a => a.fit_score < 60).length, fill: SCORE_COLORS.low },
+    { name: '60–79', count: history.filter(a => a.fit_score >= 60 && a.fit_score < 80).length, fill: SCORE_COLORS.mid },
+    { name: '≥ 80', count: history.filter(a => a.fit_score >= 80).length, fill: SCORE_COLORS.high },
+  ]
+
+  // Status donut
+  const statusGroups = Object.entries(
+    history.reduce((acc, a) => { acc[a.status] = (acc[a.status] || 0) + 1; return acc }, {})
+  ).map(([name, value]) => ({ name, value, fill: STATUS_COLORS[name] || '#94a3b8' }))
+
+  // Applications over time
+  const byDate = history.reduce((acc, a) => {
+    const d = new Date(a.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    acc[d] = (acc[d] || 0) + 1
+    return acc
+  }, {})
+  const timelineData = Object.entries(byDate)
+    .sort((a, b) => new Date(a[0]) - new Date(b[0]))
+    .map(([date, count]) => ({ date, count }))
+
+  // Top companies
+  const companyCounts = Object.entries(
+    history.reduce((acc, a) => { acc[a.company] = (acc[a.company] || 0) + 1; return acc }, {})
+  ).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([company, count]) => ({ company, count }))
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div className="bg-white border border-slate-200 rounded-lg shadow-sm px-3 py-2 text-xs">
+        <p className="font-semibold text-slate-700">{label}</p>
+        {payload.map(p => (
+          <p key={p.name} style={{ color: p.fill || p.color }}>{p.name}: <strong>{p.value}</strong></p>
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <div className="flex flex-col items-center justify-center py-32 text-slate-400 select-none">
-      <LayoutDashboard size={56} strokeWidth={1.2} className="mb-4 text-slate-300" />
-      <h2 className="text-2xl font-semibold text-slate-500 mb-1">Dashboard</h2>
-      <p className="text-sm">Statistics &amp; insights coming soon.</p>
+    <div className="space-y-8">
+
+      {/* ── Stat Cards ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Applied" value={history.length} icon={Briefcase} color="bg-blue-500" />
+        <StatCard label="Approved" value={approved} icon={CheckCircle} color="bg-green-500" />
+        <StatCard label="Rejected" value={rejected} icon={XCircle} color="bg-red-400" />
+        <StatCard label="Avg Fit Score" value={`${avgScore}%`} icon={Award} color="bg-purple-500" />
+      </div>
+
+      {/* ── Recent Activity + Score Distribution ────────────────────── */}
+      <div className="grid md:grid-cols-2 gap-6">
+
+        {/* Recent Activity Feed */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b bg-slate-50 flex items-center gap-2">
+            <Clock size={16} className="text-slate-500" />
+            <h3 className="font-semibold text-slate-800">Recent Activity</h3>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {recent.map(app => (
+              <li key={app.id} className="px-5 py-4 flex items-center justify-between gap-3 hover:bg-slate-50 transition">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{app.company}</p>
+                  <p className="text-xs text-slate-500 truncate">{app.title}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{relativeDate(app.applied_at)}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${scoreBadge(app.fit_score)}`}>
+                    {app.fit_score}
+                  </span>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full font-medium capitalize"
+                    style={{ background: (STATUS_COLORS[app.status] || '#94a3b8') + '22', color: STATUS_COLORS[app.status] || '#94a3b8' }}
+                  >
+                    {app.status}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Fit Score Distribution */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp size={16} className="text-slate-500" />
+            <h3 className="font-semibold text-slate-800">Fit Score Distribution</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={scoreBuckets} barSize={48}>
+              <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={28} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="count" name="Jobs" radius={[6, 6, 0, 0]}>
+                {scoreBuckets.map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── Status Donut + Applications Over Time ───────────────────── */}
+      <div className="grid md:grid-cols-2 gap-6">
+
+        {/* Status Breakdown Donut */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-2">
+            <ClipboardList size={16} className="text-slate-500" />
+            <h3 className="font-semibold text-slate-800">Status Breakdown</h3>
+          </div>
+          <div className="flex items-center gap-6">
+            <ResponsiveContainer width={160} height={160}>
+              <PieChart>
+                <Pie data={statusGroups} dataKey="value" innerRadius={45} outerRadius={70} paddingAngle={3}>
+                  {statusGroups.map((entry, i) => (
+                    <Cell key={i} fill={entry.fill} />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <ul className="space-y-2 text-sm">
+              {statusGroups.map(s => (
+                <li key={s.name} className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: s.fill }} />
+                  <span className="text-slate-600 capitalize">{s.name}</span>
+                  <span className="font-bold text-slate-800 ml-auto pl-4">{s.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {/* Applications Over Time */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <TrendingUp size={16} className="text-slate-500" />
+            <h3 className="font-semibold text-slate-800">Applications Over Time</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={timelineData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="date" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={24} />
+              <Tooltip content={<CustomTooltip />} />
+              <Line type="monotone" dataKey="count" name="Applications" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4, fill: '#3b82f6' }} activeDot={{ r: 6 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── Top Companies ───────────────────────────────────────────── */}
+      {companyCounts.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Briefcase size={16} className="text-slate-500" />
+            <h3 className="font-semibold text-slate-800">Top Companies Applied To</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={companyCounts.length * 44}>
+            <BarChart data={companyCounts} layout="vertical" barSize={20}>
+              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis type="category" dataKey="company" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={130} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="count" name="Applications" fill="#3b82f6" radius={[0, 6, 6, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
     </div>
   )
 }
