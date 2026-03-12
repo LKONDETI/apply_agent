@@ -17,6 +17,7 @@ def find_jobs_node(state: AgentState) -> Dict[str, Any]:
     search_location = state.get("search_location", "Remote")
     search_job_type = state.get("search_job_type", "Full-time")
     search_time_posted = state.get("search_time_posted", "any")
+    search_site = state.get("search_site", "")  # "" = global
     search_limit = state.get("search_limit", 5)
     
     # Use role from state, fallback to parsed skills
@@ -40,8 +41,11 @@ def find_jobs_node(state: AgentState) -> Dict[str, Any]:
         
     print(f"Searching for: {query} in {search_location} (limit: {search_limit}, time: {search_time_posted})")
         
-    provider = get_search_provider("ddg") # Use Real Search
-    jobs = provider.find_jobs(query=query, location=search_location)
+    if search_site:
+        print(f"Site filter active: site:{search_site}")
+        
+    provider = get_search_provider("ddg")
+    jobs = provider.find_jobs(query=query, location=search_location, site=search_site)
     
     # Filter DB duplicates
     from src.database import get_application

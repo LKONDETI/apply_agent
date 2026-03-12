@@ -400,6 +400,7 @@ function JobSearchTab() {
   const [role, setRole] = useState('Software Engineer')
   const [jobType, setJobType] = useState('Full-time')
   const [timePosted, setTimePosted] = useState('any')
+  const [searchSite, setSearchSite] = useState('')
   const [jobs, setJobs] = useState([])
   const [uploadedResumePath, setUploadedResumePath] = useState(null)
 
@@ -411,7 +412,8 @@ function JobSearchTab() {
         location,
         role,
         job_type: jobType,
-        time_posted: timePosted
+        time_posted: timePosted,
+        search_site: searchSite
       })
       setThreadId(res.data.thread_id)
       setStatus(res.data.status)
@@ -504,8 +506,8 @@ function JobSearchTab() {
             <ResumeUploader onUploadComplete={(path) => setUploadedResumePath(path)} />
           </div>
 
-          {/* Filters */}
-          <div className="grid md:grid-cols-4 gap-4 mb-4">
+          {/* Filters — row 1 */}
+          <div className="grid md:grid-cols-4 gap-4 mb-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
                 <Briefcase size={16} /> Role
@@ -564,6 +566,40 @@ function JobSearchTab() {
                 <option value="30d">Last one month</option>
               </select>
             </div>
+          </div>
+
+          {/* Filters — row 2: Job Site */}
+          <div className="grid md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
+                <Search size={16} /> Job Site
+              </label>
+              <select
+                value={searchSite}
+                onChange={(e) => setSearchSite(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">🌐 All Sites</option>
+                <option value="linkedin.com/jobs">💼 LinkedIn</option>
+                <option value="indeed.com">🔍 Indeed</option>
+                <option value="glassdoor.com">🪟 Glassdoor</option>
+                <option value="weworkremotely.com">🌍 WeWorkRemotely</option>
+                <option value="greenhouse.io">🌿 Greenhouse</option>
+                <option value="lever.co">🎯 Lever</option>
+                <option value="builtin.com">🏗️ Built In</option>
+                <option value="simplyhired.com">✅ SimplyHired</option>
+              </select>
+            </div>
+            {searchSite && (
+              <div className="flex items-end pb-0.5">
+                <button
+                  onClick={() => setSearchSite('')}
+                  className="text-xs text-slate-400 hover:text-slate-600 underline"
+                >
+                  Clear site filter
+                </button>
+              </div>
+            )}
           </div>
 
           <button

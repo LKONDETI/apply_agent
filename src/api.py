@@ -50,6 +50,7 @@ class RunRequest(BaseModel):
     role: str = "Software Engineer"
     job_type: str = "Full-time"
     time_posted: str = "any"  # "any", "24h", "3d", "7d", "14d", "30d"
+    search_site: str = ""     # "" = global, or a domain like "linkedin.com/jobs"
     
 class RunResponse(BaseModel):
     thread_id: str
@@ -124,6 +125,7 @@ def start_run(req: RunRequest):
         "search_role": req.role,
         "search_job_type": req.job_type,
         "search_time_posted": req.time_posted,
+        "search_site": req.search_site,
         "search_limit": 5
     }
     
