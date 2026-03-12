@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,7 +16,23 @@ from src.config import settings
 # Initialize DB
 create_db_and_tables()
 
-app = FastAPI(title="Job Application Agent API")
+# Directory to store uploaded resumes — absolute path so it works regardless of CWD
+UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+
+# Shared checkpointer + graph — initialized eagerly so the app works even if
+# the lifespan hook doesn't fire (e.g. TestClient or direct imports).
+memory = MemorySaver()
+graph_app = create_graph(checkpointer=memory)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Re-confirm uploads directory exists on startup
+    UPLOADS_DIR.mkdir(exist_ok=True)
+    yield  # app is running
+    # (cleanup on shutdown goes here if needed)
+
+app = FastAPI(title="Job Application Agent API", lifespan=lifespan)
 
 # Allow CORS for frontend
 app.add_middleware(
@@ -25,31 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# In-memory graph storage for demo (re-initialized on server restart)
-# In production, use PostgresSaver
-memory = MemorySaver()
-# agent_graph = create_graph_with_checkpointer(memory) # REMOVED
-
-# Refactor: We need the graph compiled with the checkpointer outside main.py
-# Let's import the one from src/graph.py but we need to inject the checkpointer.
-# Or we use a global memory here.
-# Since `src/graph.py` doesn't take arguments in my current implementation, 
-# I will patch it or import the `state_graph` before compilation if possible, 
-# OR just re-implement the compile step here using the function.
-
-# Let's import `create_graph` from src/graph.py. 
-# Wait, `src.graph.create_graph` returns `workflow.compile(interrupt_before=...)`.
-# It does NOT attach a checkpointer by default in that file!
-# I need to modify `src/graph.py` to accept a checkpointer or attach it here.
-# `workflow.compile(checkpointer=memory, ...)`
-# I will hot-patch or modify `src/graph.py` first. For now, I'll assume I can pass it.
-
-# Actually, let's redefine the proper graph setup here to be safe and clear.
-from src.state import AgentState
-from src.graph import create_graph as build_compiled_graph 
-# My specific implementation of create_graph in src/graph.py handles compilation logic.
-# I should update src/graph.py to take an optional checkpointer.
 
 # --- API Models ---
 class RunRequest(BaseModel):
@@ -83,26 +75,7 @@ class AgentStateResponse(BaseModel):
     next_step: Optional[str] = None
     jobs: Optional[List[Dict[str, Any]]] = None
 
-# --- Graph Manager (Singleton-ish) ---
-# We need to modify `src/graph.py` to allow passing the checkpointer.
-# For now, I will use a helper to attach it if possible, but LangGraph compilation is final.
-# Strategy: I'll rewrite `create_graph` in `src/graph.py` in the next tool call to be more flexible.
-# For this file, I'll assume `src.graph.create_graph` takes `checkpointer`.
 
-# Placeholder for the graph instance
-graph_app = None
-
-# Directory to store uploaded resumes — use absolute path so files can be
-# reliably found no matter where the process was launched from.
-UPLOADS_DIR = Path(__file__).resolve().parent.parent / "uploads"
-
-@app.on_event("startup")
-def startup_event():
-    global graph_app
-    # Ensure uploads directory exists
-    UPLOADS_DIR.mkdir(exist_ok=True)
-    from src.graph import create_graph
-    graph_app = create_graph(checkpointer=memory)
 
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
