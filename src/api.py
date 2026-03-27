@@ -45,7 +45,7 @@ app.add_middleware(
 
 # --- API Models ---
 class RunRequest(BaseModel):
-    resume_path: str = "resume.pdf"
+    resume_path: str
     location: str = "Remote"
     role: str = "Software Engineer"
     job_type: str = "Full-time"

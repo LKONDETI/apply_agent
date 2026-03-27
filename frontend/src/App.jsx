@@ -408,7 +408,7 @@ function JobSearchTab() {
     setLoading(true)
     try {
       const res = await axios.post(`${API_Base}/run`, {
-        resume_path: uploadedResumePath || 'resume.pdf',
+        resume_path: uploadedResumePath,
         location,
         role,
         job_type: jobType,
@@ -499,8 +499,10 @@ function JobSearchTab() {
             <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1">
               <FileText size={16} />
               Resume
-              <span className="ml-1 text-xs text-slate-400 font-normal">
-                {uploadedResumePath ? '· Uploaded ✓' : '· Using default resume.pdf if not uploaded'}
+              <span className="ml-1 text-xs font-normal">
+                {uploadedResumePath
+                  ? <span className="text-green-600">· Uploaded ✓</span>
+                  : <span className="text-red-400">· Required</span>}
               </span>
             </label>
             <ResumeUploader onUploadComplete={(path) => setUploadedResumePath(path)} />
@@ -604,7 +606,7 @@ function JobSearchTab() {
 
           <button
             onClick={startRun}
-            disabled={loading}
+            disabled={loading || !uploadedResumePath}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 font-medium disabled:opacity-50 transition"
           >
             {loading ? <Loader2 className="animate-spin" /> : <Play size={18} />}
